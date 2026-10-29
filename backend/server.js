@@ -1,48 +1,126 @@
 
 const express = require("express");
 const mongoose = require("mongoose");
+const cors = require("cors");
 require("dotenv").config();
 
 const app = express();
+
+app.use(cors());
 app.use(express.json());
 
 // Kết nối MongoDB
-mongoose.connect(process.env.MONGODB_URI)
+mongoose
+  .connect(process.env.MONGODB_URI)
   .then(() => console.log("MongoDB connected successfully!"))
-  .catch((err) => console.error("MongoDB connection error:", err.message));
+  .catch((err) =>
+    console.error("MongoDB connection error:", err.message)
+  );
 
-// Tạo cấu trúc dữ liệu sinh viên
-const Student = mongoose.model(
-  "Student",
-  new mongoose.Schema({
-    studentId: { type: String, required: true, unique: true },
-    name: { type: String, required: true }
-  })
+// Cấu trúc dữ liệu món ăn
+const Food = mongoose.model(
+  "Food",
+  new mongoose.Schema(
+    {
+      foodId: { type: String, required: true, unique: true },
+      name: { type: String, required: true },
+      category: String,
+      cuisine: String,
+      ingredients: [String],
+      price: Number,
+      quantity: Number,
+      description: String,
+      imageUrl: String
+    },
+    { timestamps: true, collection: "foods" }
+  )
 );
 
+// Kiểm tra Backend
 app.get("/", (req, res) => {
-  res.send("Cloud Lab API is running!");
+  res.send("Food Management API is running!");
 });
 
-app.get("/api/hello", (req, res) => {
-  res.json({ message: "Hello from Cloud Lab!" });
+app.get("/health", (req, res) => {
+  res.json({
+    status: "OK",
+    message: "Food API is running"
+  });
 });
 
-// Xem danh sách sinh viên
-app.get("/api/students", async (req, res) => {
+// Lấy danh sách món ăn, hỗ trợ tìm kiếm
+app.get("/api/foods", async (req, res) => {
   try {
-    const students = await Student.find();
-    res.json(students);
+    const { search } = req.query;
+    const filter = search
+      ? {
+          $or: [
+            { name: { $regex: search, $options: "i" } },
+            { category: { $regex: search, $options: "i" } },
+            { cuisine: { $regex: search, $options: "i" } }
+          ]
+        }
+      : {};
+
+    const foods = await Food.find(filter);
+    res.json(foods);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Thêm sinh viên
-app.post("/api/students", async (req, res) => {
+// Lấy một món ăn
+app.get("/api/foods/:id", async (req, res) => {
   try {
-    const student = await Student.create(req.body);
-    res.status(201).json(student);
+    const food = await Food.findById(req.params.id);
+    if (!food) {
+      return res.status(404).json({ error: "Food not found" });
+    }
+    res.json(food);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Thêm món ăn
+app.post("/api/foods", async (req, res) => {
+  try {
+    const food = await Food.create(req.body);
+    res.status(201).json(food);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Cập nhật món ăn
+app.put("/api/foods/:id", async (req, res) => {
+  try {
+    const food = await Food.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+
+    if (!food) {
+      return res.status(404).json({ error: "Food not found" });
+    }
+
+    res.json(food);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Xóa món ăn
+app.delete("/api/foods/:id", async (req, res) => {
+  try {
+    const food = await Food.findByIdAndDelete(req.params.id);
+
+    if (!food) {
+      return res.status(404).json({ error: "Food not found" });
+    }
+
+    res.json({ message: "Food deleted successfully" });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
