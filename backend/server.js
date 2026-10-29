@@ -2,97 +2,109 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-require("dotenv").config();
+const path = require("path");
+
+require("dotenv").config({
+  path: path.resolve(__dirname, "../.env"),
+});
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// Kết nối MongoDB
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => console.log("MongoDB connected successfully!"))
-  .catch((err) =>
-    console.error("MongoDB connection error:", err.message)
-  );
-
-// Cấu trúc dữ liệu món ăn
-const Food = mongoose.model(
-  "Food",
-  new mongoose.Schema(
-    {
-      foodId: { type: String, required: true, unique: true },
-      name: { type: String, required: true },
-      category: String,
-      cuisine: String,
-      ingredients: [String],
-      price: Number,
-      quantity: Number,
-      description: String,
-      imageUrl: String
+// Food model
+const foodSchema = new mongoose.Schema(
+  {
+    foodId: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
     },
-    { timestamps: true, collection: "foods" }
-  )
+    name: { type: String, required: true, trim: true },
+    category: { type: String, required: true, trim: true },
+    cuisine: { type: String, required: true, trim: true },
+    ingredients: { type: [String], default: [] },
+    price: { type: Number, required: true, min: 0 },
+    quantity: { type: Number, required: true, min: 0 },
+    description: { type: String, default: "" },
+    imageUrl: { type: String, default: "" },
+  },
+  { timestamps: true, collection: "foods" }
 );
 
-// Kiểm tra Backend
+const Food = mongoose.model("Food", foodSchema);
+
+// Home
 app.get("/", (req, res) => {
   res.send("Food Management API is running!");
 });
 
+// Health check
 app.get("/health", (req, res) => {
   res.json({
     status: "OK",
-    message: "Food API is running"
+    message: "Food API is running",
   });
 });
 
-// Lấy danh sách món ăn, hỗ trợ tìm kiếm
+// Get all foods and search
 app.get("/api/foods", async (req, res) => {
   try {
     const { search } = req.query;
-    const filter = search
-      ? {
-          $or: [
-            { name: { $regex: search, $options: "i" } },
-            { category: { $regex: search, $options: "i" } },
-            { cuisine: { $regex: search, $options: "i" } }
-          ]
-        }
-      : {};
+    const filter = {};
 
-    const foods = await Food.find(filter);
+    if (search && search.trim()) {
+      const keyword = search.trim();
+      filter.$or = [
+        { name: { $regex: keyword, $options: "i" } },
+        { category: { $regex: keyword, $options: "i" } },
+        { cuisine: { $regex: keyword, $options: "i" } },
+      ];
+    }
+
+    const foods = await Food.find(filter).sort({ createdAt: -1 });
     res.json(foods);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Lấy một món ăn
+// Get one food
 app.get("/api/foods/:id", async (req, res) => {
   try {
     const food = await Food.findById(req.params.id);
+
     if (!food) {
       return res.status(404).json({ error: "Food not found" });
     }
+
     res.json(food);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: "Invalid food ID" });
   }
 });
 
-// Thêm món ăn
+// Create food
 app.post("/api/foods", async (req, res) => {
   try {
     const food = await Food.create(req.body);
     res.status(201).json(food);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    if (err.code === 11000) {
+      return res.status(409).json({ error: "foodId already exists" });
+    }
+
+    if (err.name === "ValidationError") {
+      return res.status(400).json({ error: err.message });
+    }
+
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Cập nhật món ăn
+// Update food
 app.put("/api/foods/:id", async (req, res) => {
   try {
     const food = await Food.findByIdAndUpdate(
@@ -107,11 +119,15 @@ app.put("/api/foods/:id", async (req, res) => {
 
     res.json(food);
   } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ error: "foodId already exists" });
+    }
+
     res.status(400).json({ error: err.message });
   }
 });
 
-// Xóa món ăn
+// Delete food
 app.delete("/api/foods/:id", async (req, res) => {
   try {
     const food = await Food.findByIdAndDelete(req.params.id);
@@ -122,12 +138,22 @@ app.delete("/api/foods/:id", async (req, res) => {
 
     res.json({ message: "Food deleted successfully" });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: "Invalid food ID" });
   }
 });
 
+// Connect MongoDB, then start server
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT}`);
-});
+mongoose
+  .connect(process.env.MONGODB_URI)
+  .then(() => {
+    console.log("MongoDB connected successfully");
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("MongoDB connection error:", err.message);
+    process.exit(1);
+  });
